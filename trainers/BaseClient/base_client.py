@@ -89,6 +89,10 @@ class BaseClientTrainer(ClientTrainer, ABC):
         if model_parameters is not None:
             SerializationTool.deserialize_model(self._model, model_parameters)
 
+        # martinc
+        # reset model lora A, lora B
+        self._model.backbone.reset_all_lora_parameters()
+
         # build optimizer,scheduler,loss
         optimizer, scheduler = self._build_optimizer(self._model, len(train_loader))
         self._model, optimizer = self._mixed_train_model(self._model, optimizer)
@@ -101,6 +105,19 @@ class BaseClientTrainer(ClientTrainer, ABC):
             if self.federated_config.pson and self.stop_early:
                 self.logger.critical(f"local stop early in {epoch}")
                 break
+
+        # martinc
+        # reset model lora A, lora B
+        self._model.backbone.merge_lora_reuse()
+
+        # martinc
+        # reset model lora A, lora B
+        self._model.backbone.reset_all_lora_parameters()
+        # self._model.backbone.reset_zero_all_lora_parameters()
+        # reset lora layer grad
+        for name, parameter in self._model.named_parameters():
+            if "lora" in name:
+                parameter.grad.zero_()
 
     def _get_dataloader(self, dataset, client_id: int):
         """Get :class:`DataLoader` for ``client_id``."""
