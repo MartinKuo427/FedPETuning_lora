@@ -41,7 +41,8 @@ logger.info(f"{task_name}'s max_seq is {max_seq}")
 
 cmds = []
 gpu_index = 0
-for tuning_type in ['lora', 'prefix', 'adapter', 'bitfit', 'fine-tuning']:
+# for tuning_type in ['lora', 'prefix', 'adapter', 'bitfit', 'fine-tuning']:
+for tuning_type in ['lora']:
     hyper_parameter = fed_best_hyperparameter[task_name][tuning_type]
     # hyper_parameter["seed"] = [42]
     hyper_parameter["num_train_epochs"] = [1]

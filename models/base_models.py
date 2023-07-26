@@ -8,9 +8,12 @@ from models.utils import PromptType
 import torch
 import torch.nn as nn
 from transformers import trainer, AutoConfig
-
+"""
 from opendelta import AutoDeltaConfig
 from opendelta.auto_delta import AutoDeltaModel
+"""
+from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
+from peft import LoraModel, LoraConfig
 
 
 class BaseModels(nn.Module, ABC):
@@ -78,9 +81,17 @@ class BaseModels(nn.Module, ABC):
             ...
         else:
             delta_args = registry.get("delta_config")
+
+            peft_config = LoraConfig(
+                task_type=TaskType.SEQ_CLS, inference_mode=False, r=delta_args["lora_r"], lora_alpha=delta_args["lora_alpha"], lora_dropout=0.0, target_modules=["query", "value"]# "attn.q", "attn.v"
+            )
+
+            backbone = get_peft_model(backbone, peft_config)
+            """
             delta_config = AutoDeltaConfig.from_dict(delta_args)
             delta_model = AutoDeltaModel.from_config(delta_config, backbone_model=backbone)
             delta_model.freeze_module(set_state_dict=True)
+            """
             # delta_model.log(delta_ratio=True, trainable_ratio=True, visualization=True)
             # self.logger.debug(delta_config)
             # self.logger.debug(backbone)
