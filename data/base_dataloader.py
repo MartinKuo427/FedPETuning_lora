@@ -184,7 +184,8 @@ class BaseDataLoader(ABC):
         else:
             dataset = TensorDataset(all_input_ids, all_attention_mask, all_token_type_ids, all_labels)
 
-        sampler = RandomSampler(dataset) if mode == "train" else SequentialSampler(dataset)
+        # sampler = RandomSampler(dataset) if mode == "train" else SequentialSampler(dataset)
+        sampler = SequentialSampler(dataset)
         dataloader = DataLoader(dataset, sampler=sampler, batch_size=self.training_config.train_batch_size)
 
         return dataloader

@@ -39,8 +39,14 @@ class Aggregators(object):
 
         weights = weights / torch.sum(weights)
         assert torch.all(weights >= 0), "weights should be non-negative values"
+
+        for index in range(len(serialized_params_list)):
+            serialized_params_list[index] = serialized_params_list[index].double()
+
         serialized_parameters = torch.sum(
             torch.stack(serialized_params_list, dim=-1) * weights, dim=-1)
+        
+        serialized_parameters = serialized_parameters.float()
 
         return serialized_parameters
 

@@ -111,10 +111,23 @@ def setup_seed(seed: int):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.use_deterministic_algorithms(True)
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+
+    """
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.enabled = True
     #  torch.backends.cudnn.benchmark = False
     #  torch.backends.cudnn.deterministic = True
-
+    """
 
 def init_training_device(gpu):
     device = torch.device(f"cuda:{gpu}" if torch.cuda.is_available() else "cpu")
