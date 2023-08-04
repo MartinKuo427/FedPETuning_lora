@@ -18,6 +18,7 @@ task_name = sys.argv[3]
 tuning_type = sys.argv[4]
 port_start = int(sys.argv[5])
 device = sys.argv[6]
+mix_round_threshold = sys.argv[7]
 
 device_idx_list = [idx for idx in device.split(",")]
 n_gpu = len(device_idx_list)
@@ -72,6 +73,7 @@ for tuning_type in ['lora']:
             "--model_output_mode", model_output_mode,
             "--tuning_type", f"{tuning_type}_roberta-base",
             "--do_grid", "True",
+            "--mix_round_threshold", mix_round_threshold,
         ]
         for key, value in specific_parameter_dict.items():
             options.extend(["--" + key, str(value)])

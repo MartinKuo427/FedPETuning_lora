@@ -15,6 +15,8 @@ from opendelta.auto_delta import AutoDeltaModel
 from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
 from peft import LoraModel, LoraConfig
 
+import pickle
+
 
 class BaseModels(nn.Module, ABC):
     def __init__(self, task_name):
@@ -88,14 +90,51 @@ class BaseModels(nn.Module, ABC):
 
             backbone = get_peft_model(backbone, peft_config)
             """
-            delta_config = AutoDeltaConfig.from_dict(delta_args)
-            delta_model = AutoDeltaModel.from_config(delta_config, backbone_model=backbone)
-            delta_model.freeze_module(set_state_dict=True)
-            """
+            with open("opendelta_entiremodel_lora_roberta_port_10020_r" + str(self.rank) + ".pkl", 'rb') as f:
+                load_opendelta_dict = pickle.load(f)
+
+            
+            # delta_config = AutoDeltaConfig.from_dict(delta_args)
+            # delta_model = AutoDeltaModel.from_config(delta_config, backbone_model=backbone)
+            # delta_model.freeze_module(set_state_dict=True)
+            
             # delta_model.log(delta_ratio=True, trainable_ratio=True, visualization=True)
             # self.logger.debug(delta_config)
             # self.logger.debug(backbone)
             # self.logger.debug(delta_args)
+
+            load_opendelta_value = list(load_opendelta_dict.values())
+            load_opendelta_key = list(load_opendelta_dict.keys())
+
+
+            index = 0
+            for key, backbone_layer in backbone.named_parameters():
+                # print("index:", index, " key:", key)
+                
+                if(index == 249):
+                    index = 245
+                backbone_layer.data.copy_(load_opendelta_value[index])
+                
+                index += 1
+            """
+            """
+            self.round_count = nn.ParameterDict({})
+            round_value = torch.ones((1), dtype=self.weight.dtype, device=self.weight.device)
+            self.round_count.update(nn.ParameterDict({"round_count_martinc": nn.Parameter(round_value)}))
+            """
+
+            """
+            print("before backbone")
+            print(backbone)
+
+            backbone = nn.Sequential(
+                backbone,
+                torch.ones(1)
+            )
+
+            print("after backbone")
+            print(backbone)
+            """          
 
         return backbone
 

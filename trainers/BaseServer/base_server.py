@@ -121,6 +121,13 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
             # use aggregator
             serialized_parameters = Aggregators.fedavg_aggregate(model_parameters_list)
             SerializationTool.deserialize_model(self._model, serialized_parameters)
+            """
+            # martinc
+            print("server backbone.base_model.model.roberta.encoder.layer.3.attention.self.value.round_count.round_count")
+            print(self._model.state_dict()["backbone.base_model.model.roberta.encoder.layer.3.attention.self.value.round_count.round_count"])
+            self._model.state_dict()["backbone.base_model.model.roberta.encoder.layer.3.attention.self.value.round_count.round_count"].add_(1)
+            """
+
             self.round += 1
 
             self.valid_on_server()
@@ -132,7 +139,38 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
                         self.metric_log["test_rounds"] = {}
                     self.metric_log["test_rounds"][f"round_{self.round}"] \
                         = result[self.metric_name]
+            """
+            print("server self.round:", self.round)
+            print("server self.model_parameters")
+            print(self.model_parameters)
+            print("server self.model_parameters.size():", self.model_parameters.size())
+            """
+            """
+            if (self.round > 5):
+                print("martinc check quit-----------")
+                quit()
+            """
+            """
+            # martinc test log
+            print("self._model")
+            print(self._model)
+            for name, parameter in self._model.named_parameters():
+                print("name:-------------------------", name)
+                print("parameter.size():", parameter.size())
+            """
+            # print("self._model.state_dict()")
+            # print(self._model.state_dict())# .state_dict()
+            # backbone.base_model.model.roberta.encoder.layer.3.attention.self.value.round_count.round_count
 
+            # torch.add(self._model.state_dict()["backbone.base_model.model.roberta.encoder.layer.3.attention.self.value.round_count.round_count"], 1)
+            # print("after add backbone.base_model.model.roberta.encoder.layer.3.attention.self.value.round_count.round_count")
+            # print(self._model.state_dict()["backbone.base_model.model.roberta.encoder.layer.3.attention.self.value.round_count.round_count"])
+
+            """
+            if (self.round > 5):
+                print("martinc check quit-----------")
+                quit()
+            """
             # reset cache cnt
             self.client_buffer_cache = []
 
@@ -147,7 +185,10 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
     @property
     def downlink_package(self):
         """Property for manager layer. BaseServer manager will call this property when activates clients."""
-        return [self.model_parameters]
+        # original
+        # return [self.model_parameters]
+        # return [self.model_parameters, torch.tensor(self.round)]
+        return [torch.cat((self.model_parameters, torch.tensor([self.round + 1])), dim=0)]
 
     @property
     def if_stop(self):

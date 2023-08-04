@@ -39,6 +39,8 @@ class BaseClientTrainer(ClientTrainer, ABC):
         self.client_num = len(config.F.clients_id_list)
         self.device = config.training_config.device
         self.rank = config.federated_config.rank
+        # martinc
+        self.mix_round_threshold = self.federated_config.mix_round_threshold
         self.param_list = []
         self.logger = registry.get("logger")
 
@@ -82,7 +84,7 @@ class BaseClientTrainer(ClientTrainer, ABC):
     def uplink_package(self):
         return self.param_list
 
-    def _train_alone(self, idx: int, model_parameters: torch.Tensor, *args, **kwargs):
+    def _train_alone(self, idx: int, model_parameters: torch.Tensor, server_round: int, *args, **kwargs):
         """local training for Client"""
 
         train_loader = self._get_dataloader(dataset=self.train_dataset, client_id=idx)
@@ -91,7 +93,7 @@ class BaseClientTrainer(ClientTrainer, ABC):
 
         # martinc
         # reset model lora A, lora B
-        self._model.backbone.reset_all_lora_parameters()
+        # self._model.backbone.reset_all_lora_parameters()
 
         # build optimizer,scheduler,loss
         optimizer, scheduler = self._build_optimizer(self._model, len(train_loader))
@@ -105,19 +107,29 @@ class BaseClientTrainer(ClientTrainer, ABC):
             if self.federated_config.pson and self.stop_early:
                 self.logger.critical(f"local stop early in {epoch}")
                 break
-
-        # martinc
-        # reset model lora A, lora B
-        self._model.backbone.merge_lora_reuse()
-
-        # martinc
-        # reset model lora A, lora B
-        self._model.backbone.reset_all_lora_parameters()
-        # self._model.backbone.reset_zero_all_lora_parameters()
-        # reset lora layer grad
+        """
         for name, parameter in self._model.named_parameters():
-            if "lora" in name:
-                parameter.grad.zero_()
+            print("idx:", idx, " name:-------------------------", name)
+            print("parameter.size():", parameter.size())
+        """
+        if (server_round % self.mix_round_threshold == 0):
+            # print("idx:", idx, " server_round:", server_round, " self.mix_round_threshold:", self.mix_round_threshold)
+            # print("client idx:", idx, " self.mix_round_threshold:", self.mix_round_threshold, " server backbone.base_model.model.roberta.encoder.layer.3.attention.self.value.round_count.round_count")
+            # print(int(self._model.state_dict()["backbone.base_model.model.roberta.encoder.layer.3.attention.self.value.round_count.round_count"].item()))
+            # martinc
+            # reset model lora A, lora B
+            self._model.backbone.merge_lora_reuse()
+
+            # martinc
+            # reset model lora A, lora B
+            self._model.backbone.reset_all_lora_parameters()
+            # self._model.backbone.reset_zero_all_lora_parameters()
+            # reset lora layer grad
+            for name, parameter in self._model.named_parameters():
+                if "lora" in name:
+                    parameter.grad.zero_()
+        
+        
 
     def _get_dataloader(self, dataset, client_id: int):
         """Get :class:`DataLoader` for ``client_id``."""
@@ -130,16 +142,26 @@ class BaseClientTrainer(ClientTrainer, ABC):
     def local_process(self, id_list: List, payload: List):
         """local process for Federated Learning"""
         model_parameters = payload[0]
+        # print("local_process model_parameters------------------------------------")
+        # print(model_parameters)
         self.param_list = self.fed_train(model_parameters, id_list)
         return self.param_list
 
     def fed_train(self, model_parameters: torch.Tensor, id_list: List):
         param_list = []
-
+        server_round = int(model_parameters[-1].item())
+        model_parameters = model_parameters[:-1]
+        
         for idx in id_list:
+            #martinc test check log
+            # print("client idx-----------------------------------:", idx)
+            # print("client model_parameters")
+            # print(model_parameters)
+            # print("client model_parameters.size():", model_parameters.size())
             self._train_alone(
                 idx=idx,
-                model_parameters=model_parameters
+                model_parameters=model_parameters,
+                server_round=server_round
             )
             param_list.append(self.model_parameters)
 

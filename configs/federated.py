@@ -60,6 +60,9 @@ class FederatedTrainingArguments:
     _clients_num_per_sub_server: int = field(
         init=False, metadata={"help": "The number of clients in different works"}
     )
+    mix_round_threshold: int = field(
+        default=20, metadata={"help": "mix_round_threshold"}
+    )
 
     def __post_init__(self):
         if self.alpha is None:
