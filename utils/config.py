@@ -165,6 +165,9 @@ def amend_config(model_args, data_args, training_args, federated_args):
 
     config.check_config()
 
+    # martinc 
+    # config.T.num_train_epochs = 5.0
+
     if config.T.do_grid:
         key_name, key_abb = get_delta_key(config.T.tuning_type)
         delta_config = registry.get("delta_config")

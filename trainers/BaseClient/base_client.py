@@ -41,6 +41,7 @@ class BaseClientTrainer(ClientTrainer, ABC):
         self.rank = config.federated_config.rank
         # martinc
         self.mix_round_threshold = self.federated_config.mix_round_threshold
+        self.alternate_lora_training = self.federated_config.alternate_lora_training
         self.param_list = []
         self.logger = registry.get("logger")
 
@@ -100,6 +101,27 @@ class BaseClientTrainer(ClientTrainer, ABC):
         self._model, optimizer = self._mixed_train_model(self._model, optimizer)
         self._build_loss()
 
+        if (self.alternate_lora_training):
+            # if (server_round % 1 == 0):
+            if (server_round % 2 == 0):
+                freeze_grad_name = "lora_B"
+                unfreeze_grad_name = "lora_A"
+            elif (server_round % 2 == 1):
+                freeze_grad_name = "lora_A"
+                unfreeze_grad_name = "lora_B"
+            for name, parameter in self._model.named_parameters():
+                # print("client idx:", idx, " name:", name, " parameter.requires_grad:", parameter.requires_grad)
+                if (freeze_grad_name in name):
+                    parameter.requires_grad = False
+                if (unfreeze_grad_name in name):
+                    parameter.requires_grad = True
+
+        """
+        # martinc check
+        for name, parameter in self._model.named_parameters():
+            if(("lora_A" in name) or ("lora_B" in name)):
+                print("server_round:", server_round, " client idx:", idx, " name:", name, " parameter.requires_grad:", parameter.requires_grad)
+        """
         for epoch in range(0, int(self.training_config.num_train_epochs)):
             self._on_epoch_begin()
             self._on_epoch(train_loader, optimizer, scheduler)
@@ -107,11 +129,9 @@ class BaseClientTrainer(ClientTrainer, ABC):
             if self.federated_config.pson and self.stop_early:
                 self.logger.critical(f"local stop early in {epoch}")
                 break
-        """
-        for name, parameter in self._model.named_parameters():
-            print("idx:", idx, " name:-------------------------", name)
-            print("parameter.size():", parameter.size())
-        """
+        
+
+        
         if (server_round % self.mix_round_threshold == 0):
             # print("idx:", idx, " server_round:", server_round, " self.mix_round_threshold:", self.mix_round_threshold)
             # print("client idx:", idx, " self.mix_round_threshold:", self.mix_round_threshold, " server backbone.base_model.model.roberta.encoder.layer.3.attention.self.value.round_count.round_count")

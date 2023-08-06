@@ -139,6 +139,12 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
                         self.metric_log["test_rounds"] = {}
                     self.metric_log["test_rounds"][f"round_{self.round}"] \
                         = result[self.metric_name]
+            
+            """
+            if (self.round > 5):
+                print("martinc check quit-----------")
+                quit()
+            """
             """
             print("server self.round:", self.round)
             print("server self.model_parameters")

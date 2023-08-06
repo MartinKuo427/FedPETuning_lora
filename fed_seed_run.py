@@ -19,6 +19,10 @@ tuning_type = sys.argv[4]
 port_start = int(sys.argv[5])
 device = sys.argv[6]
 mix_round_threshold = sys.argv[7]
+alternate_lora_training = sys.argv[8]
+# num_train_epochs = sys.argv[9]
+# rounds = sys.argv[9]
+
 
 device_idx_list = [idx for idx in device.split(",")]
 n_gpu = len(device_idx_list)
@@ -47,6 +51,8 @@ for tuning_type in ['lora']:
     hyper_parameter = fed_best_hyperparameter[task_name][tuning_type]
     # hyper_parameter["seed"] = [42]
     hyper_parameter["num_train_epochs"] = [1]
+    # hyper_parameter["num_train_epochs"] = num_train_epochs
+    # hyper_parameter["rounds"] = rounds
     # hyper_parameter["alpha"] = [0.1, 10.0]
     # hyper_parameter["sample"] = [0.2, 0.3, 0.4]
     for parameter in it.product(*list(hyper_parameter.values())):
@@ -74,6 +80,8 @@ for tuning_type in ['lora']:
             "--tuning_type", f"{tuning_type}_roberta-base",
             "--do_grid", "True",
             "--mix_round_threshold", mix_round_threshold,
+            "--alternate_lora_training", alternate_lora_training,
+            # "--rounds", rounds,
         ]
         for key, value in specific_parameter_dict.items():
             options.extend(["--" + key, str(value)])
