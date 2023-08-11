@@ -19,7 +19,7 @@ import pickle
 
 
 class BaseModels(nn.Module, ABC):
-    def __init__(self, task_name):
+    def __init__(self, task_name, lora_r, lora_alpha):
         super().__init__()
 
         self.task_name = task_name
@@ -28,6 +28,10 @@ class BaseModels(nn.Module, ABC):
         self.model_config = config.model_config
         self.rank = config.federated_config.rank
         self.logger = registry.get("logger")
+        
+        #martinc
+        self.lora_r = lora_r
+        self.lora_alpha = lora_alpha
 
     def _build_config(self, **kwargs):
         auto_config = AutoConfig.from_pretrained(
@@ -85,7 +89,8 @@ class BaseModels(nn.Module, ABC):
             delta_args = registry.get("delta_config")
 
             peft_config = LoraConfig(
-                task_type=TaskType.SEQ_CLS, inference_mode=False, r=delta_args["lora_r"], lora_alpha=delta_args["lora_alpha"], lora_dropout=0.0, target_modules=["query", "value"]# "attn.q", "attn.v"
+                # task_type=TaskType.SEQ_CLS, inference_mode=False, r=delta_args["lora_r"], lora_alpha=delta_args["lora_alpha"], lora_dropout=0.0, target_modules=["query", "value"]# "attn.q", "attn.v"
+                task_type=TaskType.SEQ_CLS, inference_mode=False, r=self.lora_r, lora_alpha=self.lora_alpha, lora_dropout=0.0, target_modules=["query", "value"]# "attn.q", "attn.v"
             )
 
             backbone = get_peft_model(backbone, peft_config)

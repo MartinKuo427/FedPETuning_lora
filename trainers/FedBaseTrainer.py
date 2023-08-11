@@ -48,9 +48,67 @@ class BaseTrainer(ABC):
     def _build_data(self):
         self.data = registry.get_data_class(self.data_config.dataset_name)()
 
+    """
     def _build_model(self):
         self.model = registry.get_model_class(self.model_config.model_output_mode)(
             task_name=self.data_config.task_name
+        )
+        # print("inside _build_model self.model")
+        # print(self.model)
+        # for key, backbone_layer in backbone.named_parameters():
+            # print("index:", index, " key:", key)
+        # print("martinc quit---------------------------------------")
+        # quit()
+    """
+    def _build_server_model(self):
+
+        #martinc todo
+        delta_args = registry.get("delta_config")
+        lora_r = delta_args["lora_r"]
+        lora_alpha = delta_args["lora_alpha"]
+
+        self.server_model = registry.get_model_class(self.model_config.model_output_mode)(# cls, name, lora_r, lora_alpha
+            task_name=self.data_config.task_name,
+            lora_r=lora_r,
+            lora_alpha=lora_alpha
+        )
+
+    def _build_client_model(self, server_rank):
+        #martinc todo
+        lora_r = 2
+        lora_alpha = 2
+
+        self.client_model_rank2 = registry.get_model_class(self.model_config.model_output_mode)(# cls, name, lora_r, lora_alpha
+            task_name=self.data_config.task_name,
+            lora_r=lora_r,
+            lora_alpha=lora_alpha
+        )
+
+        lora_r = 4
+        lora_alpha = 4
+
+        self.client_model_rank4 = registry.get_model_class(self.model_config.model_output_mode)(# cls, name, lora_r, lora_alpha
+            task_name=self.data_config.task_name,
+            lora_r=lora_r,
+            lora_alpha=lora_alpha
+        )
+
+        lora_r = 8
+        lora_alpha = 8
+
+        self.client_model_rank8 = registry.get_model_class(self.model_config.model_output_mode)(# cls, name, lora_r, lora_alpha
+            task_name=self.data_config.task_name,
+            lora_r=lora_r,
+            lora_alpha=lora_alpha
+        )
+
+        # if (server_rank >= 16):
+        lora_r = 16
+        lora_alpha = 16
+        self.client_model_rank16 = registry.get_model_class(self.model_config.model_output_mode)(# cls, name, lora_r, lora_alpha
+            task_name=self.data_config.task_name,
+            lora_r=lora_r,
+            lora_alpha=lora_alpha
         )
 
     def _before_training(self):
@@ -62,9 +120,6 @@ class BaseTrainer(ABC):
         # set before build model
         self._build_data()
 
-        self.logger.info(f"{self.role} building model ...")
-        self._build_model()
-
         # self.logger.info(f"{self.role} building local trainer ...")
         # self._build_local_trainer()
 
@@ -73,9 +128,32 @@ class BaseTrainer(ABC):
             self._build_network()
 
         if self.federated_config.rank == 0:
+            self.logger.info("martinc building server ...")
+            self.logger.info(f"{self.role} building model ...")
+
+            # need to build model server rank8
+            # self._build_model()
+            # martinc
+            self._build_server_model()
+
+            #print("self.server_model_rank8")
+            #print(self.server_model_rank8)
+            #print("martinc fff quit------------------")
+            #quit()
             self.logger.info("building server ...")
             self._build_server()
         else:
+            self.logger.info("martinc building client ...")
+            self.logger.info(f"{self.role} building model client rank2, rank4, rank8 ...")
+            
+            delta_args = registry.get("delta_config")
+            self.server_rank = delta_args["lora_r"]
+            # need to build model client rank2, rank4, rank8
+            # self._build_model()
+            # martinc
+            self._build_client_model(self.server_rank)
+            # print("self.client_model_rank2")
+            # print(self.client_model_rank2)
             self._build_client()
             if self.federated_config.rank > 0:
                 self.logger.info(f"building client {self.federated_config.rank} ...")

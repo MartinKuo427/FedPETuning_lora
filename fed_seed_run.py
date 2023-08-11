@@ -20,6 +20,7 @@ port_start = int(sys.argv[5])
 device = sys.argv[6]
 mix_round_threshold = sys.argv[7]
 alternate_lora_training = sys.argv[8]
+reset_client_lora_begin = sys.argv[9]
 # num_train_epochs = sys.argv[9]
 # rounds = sys.argv[9]
 
@@ -49,7 +50,7 @@ gpu_index = 0
 # for tuning_type in ['lora', 'prefix', 'adapter', 'bitfit', 'fine-tuning']:
 for tuning_type in ['lora']:
     hyper_parameter = fed_best_hyperparameter[task_name][tuning_type]
-    # hyper_parameter["seed"] = [42]
+    hyper_parameter["seed"] = [42]
     hyper_parameter["num_train_epochs"] = [1]
     # hyper_parameter["num_train_epochs"] = num_train_epochs
     # hyper_parameter["rounds"] = rounds
@@ -81,6 +82,7 @@ for tuning_type in ['lora']:
             "--do_grid", "True",
             "--mix_round_threshold", mix_round_threshold,
             "--alternate_lora_training", alternate_lora_training,
+            "--reset_client_lora_begin", reset_client_lora_begin,
             # "--rounds", rounds,
         ]
         for key, value in specific_parameter_dict.items():

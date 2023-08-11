@@ -16,6 +16,7 @@
 from ..utils.serialization import SerializationTool
 from ..utils.functional import get_best_gpu
 
+import torch
 
 class ModelMaintainer(object):
     """Maintain PyTorch model.
@@ -43,10 +44,11 @@ class ModelMaintainer(object):
         """Return :class:`torch.nn.module`"""
         return self._model
 
-    @property
-    def model_parameters(self):
+    #@property
+    def model_parameters(self, rank_model, rank, server_rank):
         """Return serialized model parameters."""
-        return SerializationTool.serialize_model(self._model)
+        # return SerializationTool.serialize_model(self._model)
+        return SerializationTool.serialize_model(rank_model, rank, server_rank)
 
     @property
     def model_gradients(self):

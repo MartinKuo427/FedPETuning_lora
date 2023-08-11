@@ -14,8 +14,14 @@ class FedAvgTrainer(BaseTrainer):
         self._before_training()
 
     def _build_server(self):
+        """
         self.handler = FedAvgSyncServerHandler(
             self.model, valid_data=self.data.valid_dataloader,
+            test_data=self.data.test_dataloader
+        )
+        """
+        self.handler = FedAvgSyncServerHandler(
+            self.server_model, valid_data=self.data.valid_dataloader,
             test_data=self.data.test_dataloader
         )
 
@@ -25,9 +31,20 @@ class FedAvgTrainer(BaseTrainer):
         )
 
     def _build_client(self):
-
+        """
         self.client_trainer = FedAvgClientTrainer(
             model=self.model,
+            train_dataset=self.data.train_dataloader_dict,
+            valid_dataset=self.data.valid_dataloader_dict,
+            # data_slices=self.federated_config.clients_id_list,
+        )
+        """
+
+        self.client_trainer = FedAvgClientTrainer(
+            client_model_rank2=self.client_model_rank2,
+            client_model_rank4=self.client_model_rank4,
+            client_model_rank8=self.client_model_rank8,
+            client_model_rank16=self.client_model_rank16,
             train_dataset=self.data.train_dataloader_dict,
             valid_dataset=self.data.valid_dataloader_dict,
             # data_slices=self.federated_config.clients_id_list,

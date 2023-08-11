@@ -16,6 +16,8 @@ from fedlab.utils.serialization import SerializationTool
 from fedlab.utils import MessageCode
 from fedlab.core.coordinator import Coordinator
 
+import traceback
+
 
 class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
     def __init__(self, model, valid_data, test_data):
@@ -37,6 +39,10 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
         # basic setting
         self.client_num_in_total = config.federated_config.clients_num
         self.sample_ratio = config.federated_config.sample
+
+        # martinc server_rank
+        delta_args = registry.get("delta_config")
+        self.server_rank = delta_args["lora_r"]
 
         # client buffer
         self.client_buffer_cache = []
@@ -120,7 +126,7 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
 
             # use aggregator
             serialized_parameters = Aggregators.fedavg_aggregate(model_parameters_list)
-            SerializationTool.deserialize_model(self._model, serialized_parameters)
+            SerializationTool.deserialize_model(self._model, serialized_parameters, self.server_rank, self.server_rank)
             """
             # martinc
             print("server backbone.base_model.model.roberta.encoder.layer.3.attention.self.value.round_count.round_count")
@@ -193,8 +199,10 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
         """Property for manager layer. BaseServer manager will call this property when activates clients."""
         # original
         # return [self.model_parameters]
-        # return [self.model_parameters, torch.tensor(self.round)]
-        return [torch.cat((self.model_parameters, torch.tensor([self.round + 1])), dim=0)]
+
+        return [torch.cat((self.model_parameters(self._model, self.server_rank, self.server_rank), torch.tensor([self.round + 1])), dim=0)]
+        # return [torch.cat((cat_t, torch.tensor([self.round + 1])), dim=0)]
+    # self.model_parameters(rank_model, client_rank)
 
     @property
     def if_stop(self):
@@ -217,7 +225,7 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
 
     def test_on_server(self):
 
-        SerializationTool.deserialize_model(self._model, self.best_glo_params)
+        SerializationTool.deserialize_model(self._model, self.best_glo_params, self.server_rank, self.server_rank)
 
         result = self.eval.test_and_eval(
             model=self._model,
@@ -242,7 +250,7 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
         # TODO hard code
         if self.global_valid_best_metric < test_metric:
             self.global_valid_best_metric = test_metric
-            self.best_glo_params = SerializationTool.serialize_model(self._model)
+            self.best_glo_params = SerializationTool.serialize_model(self._model, self.server_rank, self.server_rank)
 
         self.logger.info(f"{self.data_config.task_name}-{self.model_config.model_type} "
                          f"train with client={self.federated_config.clients_num}_"

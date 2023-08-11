@@ -11,8 +11,8 @@ from transformers import RobertaForTokenClassification, trainer
 
 @registry.register_model("seq_classification")
 class SeqClassification(BaseModels, ABC):
-    def __init__(self, task_name):
-        super().__init__(task_name)
+    def __init__(self, task_name, lora_r, lora_alpha):
+        super().__init__(task_name, lora_r, lora_alpha)
 
         self.num_labels = registry.get("num_labels")
         self.auto_config = self._build_config(num_labels=self.num_labels)

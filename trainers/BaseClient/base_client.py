@@ -17,12 +17,57 @@ from fedlab.core.client.manager import ORDINARY_TRAINER, SERIAL_TRAINER
 
 
 class BaseClientTrainer(ClientTrainer, ABC):
-    def __init__(self, model, train_dataset, valid_dataset):
+    # def __init__(self, model, train_dataset, valid_dataset):
+    def __init__(self, client_model_rank2, client_model_rank4, client_model_rank8, client_model_rank16, train_dataset, valid_dataset):
 
-        self._model = model
+        # self._model = model
+        self.client_model_rank2 = client_model_rank2
+        self.client_model_rank4 = client_model_rank4
+        self.client_model_rank8 = client_model_rank8
+        self.client_model_rank16 = client_model_rank16
         self.train_dataset = train_dataset
         self.valid_dataset = valid_dataset
 
+
+        delta_args = registry.get("delta_config")
+        self.server_rank = delta_args["lora_r"]
+        #martinc client model low rank distribution
+        """
+        rank 2: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61
+        rank 4: 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73
+        rank 8: 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99
+        """
+
+        
+        if(self.server_rank >= 16):
+            self.client_rank2_id_list =  [0,   1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61]
+            self.client_rank4_id_list =  [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73]
+            self.client_rank8_id_list =  [26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86]
+            self.client_rank16_id_list = [38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]
+        elif(self.server_rank >= 8):
+            # rank2: 25% , rank4: 25% , rank8: 50%
+            self.client_rank2_id_list = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61]
+            self.client_rank4_id_list = [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73]
+            self.client_rank8_id_list = [26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]
+            self.client_rank16_id_list = []
+        
+        
+        """
+        print("martinc only client_rank8_id_list")
+        self.client_rank2_id_list = []
+        self.client_rank4_id_list = []
+        self.client_rank8_id_list = list(range(0, 100))
+        self.client_rank16_id_list = []
+        """
+
+        """
+        #
+        print("martinc only client_rank16_id_list")
+        self.client_rank2_id_list = []
+        self.client_rank4_id_list = []
+        self.client_rank8_id_list = []
+        self.client_rank16_id_list = list(range(0, 100))
+        """
         self._before_training()
 
     def _before_training(self):
@@ -42,6 +87,9 @@ class BaseClientTrainer(ClientTrainer, ABC):
         # martinc
         self.mix_round_threshold = self.federated_config.mix_round_threshold
         self.alternate_lora_training = self.federated_config.alternate_lora_training
+        self.reset_client_lora_begin = self.federated_config.reset_client_lora_begin
+
+
         self.param_list = []
         self.logger = registry.get("logger")
 
@@ -60,10 +108,33 @@ class BaseClientTrainer(ClientTrainer, ABC):
         self.stop_early = False
 
         self.metric_name = self.metric.metric_name
-        self._model.to(self.device)
+        # self._model.to(self.device)
+
+        self.client_model_rank2.to(self.device)
+        self.client_model_rank4.to(self.device)
+        self.client_model_rank8.to(self.device)
+        self.client_model_rank16.to(self.device)
 
         if self.federated_config.rank == -1:
             self._calculate_model_computation()
+
+        # build mapping dict for client choose which rank model
+        self.rank_mapping_dict = {}
+        for i in range(len(self.client_rank2_id_list)):
+            clientidx = self.client_rank2_id_list[i]
+            self.rank_mapping_dict[clientidx] = 2
+
+        for i in range(len(self.client_rank4_id_list)):
+            clientidx = self.client_rank4_id_list[i]
+            self.rank_mapping_dict[clientidx] = 4
+
+        for i in range(len(self.client_rank8_id_list)):
+            clientidx = self.client_rank8_id_list[i]
+            self.rank_mapping_dict[clientidx] = 8
+
+        for i in range(len(self.client_rank16_id_list)):
+            clientidx = self.client_rank16_id_list[i]
+            self.rank_mapping_dict[clientidx] = 16
 
     def _calculate_model_computation(self):
 
@@ -85,21 +156,48 @@ class BaseClientTrainer(ClientTrainer, ABC):
     def uplink_package(self):
         return self.param_list
 
-    def _train_alone(self, idx: int, model_parameters: torch.Tensor, server_round: int, *args, **kwargs):
+    def _train_alone(self, idx: int, model_parameters: torch.Tensor, server_round: int, client_model, client_rank: int, *args, **kwargs):
         """local training for Client"""
 
         train_loader = self._get_dataloader(dataset=self.train_dataset, client_id=idx)
+        # print("------------------------------------------------------------------")
+        # print("idx:", idx, "client_model", client_model)
+        
         if model_parameters is not None:
-            SerializationTool.deserialize_model(self._model, model_parameters)
+            SerializationTool.deserialize_model(client_model, model_parameters, client_rank, self.server_rank)
 
         # martinc
         # reset model lora A, lora B
         # self._model.backbone.reset_all_lora_parameters()
+        if (server_round % self.mix_round_threshold == 0 and (self.reset_client_lora_begin != 0)):
+            if (self.reset_client_lora_begin == 1):
+                torch.manual_seed(self.training_config.seed)
+                torch.cuda.manual_seed(self.training_config.seed)
+                torch.cuda.manual_seed_all(self.training_config.seed)
+            elif (self.reset_client_lora_begin == 2):
+                torch.manual_seed(self.training_config.seed + idx)
+                torch.cuda.manual_seed(self.training_config.seed + idx)
+                torch.cuda.manual_seed_all(self.training_config.seed + idx)
+            client_model.backbone.reset_all_lora_parameters()
 
+        """
+        # martinc
+        # reset model lora A, lora B
+        # self._model.backbone.reset_all_lora_parameters()
+        if (server_round % self.mix_round_threshold == 0):
+            client_model.backbone.reset_all_lora_parameters()
+        """
+        """
+        # martinc test check
+        for name, parameter in client_model.named_parameters():
+            if (name == "backbone.base_model.model.roberta.encoder.layer.0.attention.self.query.lora_A.default.weight"):# backbone.base_model.model.roberta.encoder.layer.3.attention.self.query.weight
+                print("_train_alone before train client_model idx:", idx , " parameter:", parameter)
+        """
         # build optimizer,scheduler,loss
-        optimizer, scheduler = self._build_optimizer(self._model, len(train_loader))
-        self._model, optimizer = self._mixed_train_model(self._model, optimizer)
+        optimizer, scheduler = self._build_optimizer(client_model, len(train_loader))
+        client_model, optimizer = self._mixed_train_model(client_model, optimizer)
         self._build_loss()
+
 
         if (self.alternate_lora_training):
             # if (server_round % 1 == 0):
@@ -109,47 +207,46 @@ class BaseClientTrainer(ClientTrainer, ABC):
             elif (server_round % 2 == 1):
                 freeze_grad_name = "lora_A"
                 unfreeze_grad_name = "lora_B"
-            for name, parameter in self._model.named_parameters():
+            for name, parameter in client_model.named_parameters():
                 # print("client idx:", idx, " name:", name, " parameter.requires_grad:", parameter.requires_grad)
                 if (freeze_grad_name in name):
                     parameter.requires_grad = False
                 if (unfreeze_grad_name in name):
                     parameter.requires_grad = True
 
-        """
-        # martinc check
-        for name, parameter in self._model.named_parameters():
-            if(("lora_A" in name) or ("lora_B" in name)):
-                print("server_round:", server_round, " client idx:", idx, " name:", name, " parameter.requires_grad:", parameter.requires_grad)
-        """
+
         for epoch in range(0, int(self.training_config.num_train_epochs)):
             self._on_epoch_begin()
-            self._on_epoch(train_loader, optimizer, scheduler)
-            self._on_epoch_end(idx)
+            self._on_epoch(client_model, train_loader, optimizer, scheduler)
+            self._on_epoch_end(client_model, idx, client_rank)
             if self.federated_config.pson and self.stop_early:
                 self.logger.critical(f"local stop early in {epoch}")
                 break
-        
 
-        
+
         if (server_round % self.mix_round_threshold == 0):
             # print("idx:", idx, " server_round:", server_round, " self.mix_round_threshold:", self.mix_round_threshold)
             # print("client idx:", idx, " self.mix_round_threshold:", self.mix_round_threshold, " server backbone.base_model.model.roberta.encoder.layer.3.attention.self.value.round_count.round_count")
             # print(int(self._model.state_dict()["backbone.base_model.model.roberta.encoder.layer.3.attention.self.value.round_count.round_count"].item()))
             # martinc
             # reset model lora A, lora B
-            self._model.backbone.merge_lora_reuse()
+            client_model.backbone.merge_lora_reuse()
 
             # martinc
             # reset model lora A, lora B
-            self._model.backbone.reset_all_lora_parameters()
+            client_model.backbone.reset_all_lora_parameters()
             # self._model.backbone.reset_zero_all_lora_parameters()
             # reset lora layer grad
-            for name, parameter in self._model.named_parameters():
+            for name, parameter in client_model.named_parameters():
                 if "lora" in name:
                     parameter.grad.zero_()
         
-        
+        """
+        # martinc test check
+        for name, parameter in client_model.named_parameters():
+            if (name == "backbone.base_model.model.roberta.encoder.layer.3.attention.self.query.weight"):# backbone.base_model.model.roberta.encoder.layer.3.attention.self.query.weight
+                print("_train_alone after train client_model idx:", idx , " parameter:", parameter)
+        """
 
     def _get_dataloader(self, dataset, client_id: int):
         """Get :class:`DataLoader` for ``client_id``."""
@@ -172,18 +269,48 @@ class BaseClientTrainer(ClientTrainer, ABC):
         server_round = int(model_parameters[-1].item())
         model_parameters = model_parameters[:-1]
         
+        # different idx has different rank client model
+        """
+        client
+        rank 2: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61
+        rank 4: 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73
+        rank 8: 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99
+        self.client_model_rank2 = client_model_rank2
+        self.client_model_rank4 = client_model_rank4
+        self.client_model_rank8 = client_model_rank8
+        """
         for idx in id_list:
             #martinc test check log
-            # print("client idx-----------------------------------:", idx)
-            # print("client model_parameters")
-            # print(model_parameters)
-            # print("client model_parameters.size():", model_parameters.size())
+            
+            client_rank = self.rank_mapping_dict[idx]
+            if(client_rank == 2):
+                rank_model = self.client_model_rank2
+            elif(client_rank == 4):
+                rank_model = self.client_model_rank4
+            elif(client_rank == 8):
+                rank_model = self.client_model_rank8
+            elif(client_rank == 16):
+                rank_model = self.client_model_rank16
+
+
             self._train_alone(
                 idx=idx,
                 model_parameters=model_parameters,
-                server_round=server_round
+                server_round=server_round,
+                client_model=rank_model,
+                client_rank=client_rank
             )
-            param_list.append(self.model_parameters)
+            # original open
+            # param_list.append(self.model_parameters)
+            # print("client_rank:", client_rank)
+
+            """
+            # martinc test check
+            for name, parameter in rank_model.named_parameters():
+                if (name == "backbone.base_model.model.roberta.encoder.layer.3.attention.self.query.weight"):# backbone.base_model.model.roberta.encoder.layer.3.attention.self.query.weight
+                    print("_train_alone after train rank_model idx:", idx , " parameter:", parameter)
+            """
+            param_list.append(self.model_parameters(rank_model, client_rank, self.server_rank))
 
         return param_list
 
@@ -266,11 +393,11 @@ class BaseClientTrainer(ClientTrainer, ABC):
             self.device, self.metric
         )
 
-    def test_on_client(self, test_dataloader):
+    def test_on_client(self, test_dataloader, client_rank):
 
         for idx in self.loc_best_params:
             loc_best_params = self.loc_best_params[idx]
-            SerializationTool.deserialize_model(self._model, loc_best_params)
+            SerializationTool.deserialize_model(self._model, loc_best_params, client_rank, self.server_rank)
             result = self.eval.test_and_eval(
                 model=self._model,
                 valid_dl=test_dataloader,
@@ -291,11 +418,11 @@ class BaseClientTrainer(ClientTrainer, ABC):
         self.tr_loss, self.logging_loss = 0.0, 0.0
         self.total, self.correct = 0, 0
 
-    def _on_epoch(self, train_loader, optimizer, scheduler):
+    def _on_epoch(self, client_model, train_loader, optimizer, scheduler):
         for step, batch in enumerate(train_loader):
             # if step >= 2:
             #     break
-            self._model.train()
+            client_model.train()
             batch = tuple(t.to(self.device) for t in batch)
             inputs = {'input_ids': batch[0],
                       'attention_mask': batch[1],
@@ -306,7 +433,7 @@ class BaseClientTrainer(ClientTrainer, ABC):
                 # XLM, DistilBERT and RoBERTa don't use segment_ids
                 inputs['token_type_ids'] = batch[2] \
                     if self.model_config.model_type in ['bert', 'xlnet'] else None
-            outputs = self._model(inputs)
+            outputs = client_model(inputs)
 
             loss, logits = outputs[:2]
             _, predicted = torch.max(logits, 1)
@@ -334,7 +461,7 @@ class BaseClientTrainer(ClientTrainer, ABC):
                 if self.training_config.fp16:
                     torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), self.training_config.max_grad_norm)
                 else:
-                    torch.nn.utils.clip_grad_norm_(self._model.parameters(), self.training_config.max_grad_norm)
+                    torch.nn.utils.clip_grad_norm_(client_model.parameters(), self.training_config.max_grad_norm)
 
                 optimizer.step()
                 scheduler.step()  # Update learning rate schedule
@@ -345,11 +472,15 @@ class BaseClientTrainer(ClientTrainer, ABC):
             if self.model_config.model_output_mode == "seq_classification":
                 self.correct += (predicted == label).sum().item()
 
-    def _on_epoch_end(self, idx):
+    def _on_epoch_end(self, client_model, idx, client_rank):
         """on epoch end"""
-
+        """
         self.logger.info(f"{self.data_config.task_name.upper()} Train, "
                          f"Client:{idx}, Loss:{self.tr_loss/self.global_step:.3f}, "
+                         f"Accuracy:{self.correct/self.total:.3f}")
+        """
+        self.logger.info(f"{self.data_config.task_name.upper()} Train, "
+                         f"Client:{idx}, client_rank:{client_rank}, Loss:{self.tr_loss/self.global_step:.3f}, "
                          f"Accuracy:{self.correct/self.total:.3f}")
 
         if not self.federated_config.pson:
@@ -359,7 +490,7 @@ class BaseClientTrainer(ClientTrainer, ABC):
         valid_data = self._get_dataloader(dataset=self.valid_dataset, client_id=idx)
 
         result = self.eval.test_and_eval(
-            model=self._model,
+            model=client_model,
             valid_dl=valid_data,
             model_type=self.model_config.model_type,
             model_output_mode=self.model_config.model_output_mode
@@ -372,7 +503,7 @@ class BaseClientTrainer(ClientTrainer, ABC):
             self.loc_best_metric[idx] = float('-inf')
         if self.loc_best_metric[idx] < test_metric:
             self.loc_best_metric[idx] = test_metric
-            self.loc_best_params[idx] = SerializationTool.serialize_model(self._model)
+            self.loc_best_params[idx] = SerializationTool.serialize_model(client_model, client_rank, self.server_rank)
             self.loc_patient_times = 0
         else:
             self.loc_patient_times += 1

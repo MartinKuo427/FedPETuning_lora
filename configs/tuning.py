@@ -183,8 +183,8 @@ fed_best_hyperparameter = {
                 "learning_rate": [1e-3],
             },
             "lora": {
-                "learning_rate": [5e-3],
-                "lora_r": [8],  # so to lora_alpha
+                "learning_rate": [5e-3],# 5e-2, 1e-3, 5e-3, 1e-2, 1e-4, 5e-4
+                "lora_r": [16],  # so to lora_alpha
             },
             "adapter": {
                 "learning_rate": [1e-3],
@@ -267,8 +267,8 @@ fed_best_hyperparameter = {
                 "learning_rate": [5e-3],
             },
             "lora": {
-                "learning_rate": [5e-3],
-                "lora_r": [8],  # so to lora_alpha
+                "learning_rate": [5e-3],# 5e-2, 1e-3, 5e-3, 1e-2, 1e-4, 5e-4
+                "lora_r": [16],  # so to lora_alpha
             },
             "adapter": {
                 "learning_rate": [1e-3],
@@ -310,7 +310,7 @@ fed_best_hyperparameter = {
             },
             "lora": {
                 "learning_rate": [1e-3],
-                "lora_r": [8],  # so to lora_alpha
+                "lora_r": [16],  # so to lora_alpha
             },
             "adapter": {
                 "learning_rate": [5e-4],

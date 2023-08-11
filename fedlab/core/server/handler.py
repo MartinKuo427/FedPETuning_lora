@@ -93,7 +93,7 @@ class SyncParameterServerHandler(ParameterServerBackendHandler):
     @property
     def downlink_package(self):
         """Property for manager layer. BaseServer manager will call this property when activates clients."""
-        return [self.model_parameters]
+        return [self.model_parameters(self._model, 0)]
 
     @property
     def if_stop(self):
@@ -190,7 +190,7 @@ class AsyncParameterServerHandler(ParameterServerBackendHandler):
 
     @property
     def downlink_package(self):
-        return [self.model_parameters, torch.Tensor([self.time])]
+        return [self.model_parameters(self._model, 0), torch.Tensor([self.time])]
 
     def _update_global_model(self, payload):
         client_model_parameters, model_time = payload[0], payload[1].item()
