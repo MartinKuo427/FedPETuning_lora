@@ -21,6 +21,7 @@ device = sys.argv[6]
 mix_round_threshold = sys.argv[7]
 alternate_lora_training = sys.argv[8]
 reset_client_lora_begin = sys.argv[9]
+average_same_rank_client_model = sys.argv[10]
 # num_train_epochs = sys.argv[9]
 # rounds = sys.argv[9]
 
@@ -83,6 +84,7 @@ for tuning_type in ['lora']:
             "--mix_round_threshold", mix_round_threshold,
             "--alternate_lora_training", alternate_lora_training,
             "--reset_client_lora_begin", reset_client_lora_begin,
+            "--average_same_rank_client_model", average_same_rank_client_model,
             # "--rounds", rounds,
         ]
         for key, value in specific_parameter_dict.items():

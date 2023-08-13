@@ -69,6 +69,9 @@ class FederatedTrainingArguments:
     reset_client_lora_begin: int = field(
         default=0, metadata={"help": "0: no reset client in the beginning of training, 1: reset into same client lora, 2: reset into diff client lora"}
     )
+    average_same_rank_client_model: bool = field(
+        default=False, metadata={"help": "average_same_rank_client_model"}
+    )
 
     def __post_init__(self):
         if self.alpha is None:

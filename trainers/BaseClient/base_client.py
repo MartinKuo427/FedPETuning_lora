@@ -14,7 +14,7 @@ from fedlab.utils import MessageCode, SerializationTool
 from fedlab.core.client.trainer import ClientTrainer
 from fedlab.core.client.manager import PassiveClientManager
 from fedlab.core.client.manager import ORDINARY_TRAINER, SERIAL_TRAINER
-
+from fedlab.core.server.handler import Aggregators
 
 class BaseClientTrainer(ClientTrainer, ABC):
     # def __init__(self, model, train_dataset, valid_dataset):
@@ -88,7 +88,8 @@ class BaseClientTrainer(ClientTrainer, ABC):
         self.mix_round_threshold = self.federated_config.mix_round_threshold
         self.alternate_lora_training = self.federated_config.alternate_lora_training
         self.reset_client_lora_begin = self.federated_config.reset_client_lora_begin
-
+        self.average_same_rank_client_model = self.federated_config.average_same_rank_client_model
+        print("martinc average_same_rank_client_model---------------------------:", self.average_same_rank_client_model)
 
         self.param_list = []
         self.logger = registry.get("logger")
@@ -191,7 +192,7 @@ class BaseClientTrainer(ClientTrainer, ABC):
         # martinc test check
         for name, parameter in client_model.named_parameters():
             if (name == "backbone.base_model.model.roberta.encoder.layer.0.attention.self.query.lora_A.default.weight"):# backbone.base_model.model.roberta.encoder.layer.3.attention.self.query.weight
-                print("_train_alone before train client_model idx:", idx , " parameter:", parameter)
+                print("before train client_model idx:", idx , " parameter:", parameter)
         """
         # build optimizer,scheduler,loss
         optimizer, scheduler = self._build_optimizer(client_model, len(train_loader))
@@ -223,7 +224,7 @@ class BaseClientTrainer(ClientTrainer, ABC):
                 self.logger.critical(f"local stop early in {epoch}")
                 break
 
-
+        """# original place
         if (server_round % self.mix_round_threshold == 0):
             # print("idx:", idx, " server_round:", server_round, " self.mix_round_threshold:", self.mix_round_threshold)
             # print("client idx:", idx, " self.mix_round_threshold:", self.mix_round_threshold, " server backbone.base_model.model.roberta.encoder.layer.3.attention.self.value.round_count.round_count")
@@ -240,12 +241,13 @@ class BaseClientTrainer(ClientTrainer, ABC):
             for name, parameter in client_model.named_parameters():
                 if "lora" in name:
                     parameter.grad.zero_()
-        
+        """
+
         """
         # martinc test check
         for name, parameter in client_model.named_parameters():
             if (name == "backbone.base_model.model.roberta.encoder.layer.3.attention.self.query.weight"):# backbone.base_model.model.roberta.encoder.layer.3.attention.self.query.weight
-                print("_train_alone after train client_model idx:", idx , " parameter:", parameter)
+                print("after train client_model idx:", idx , " parameter:", parameter)
         """
 
     def _get_dataloader(self, dataset, client_id: int):
@@ -264,10 +266,31 @@ class BaseClientTrainer(ClientTrainer, ABC):
         self.param_list = self.fed_train(model_parameters, id_list)
         return self.param_list
 
+    def average_same_rank_model(self, rank_param_list: List, client_model, client_rank, server_round):# rank2_param_list, self.client_model_rank2, 2
+        rank_serialized_parameters = Aggregators.fedavg_aggregate(rank_param_list)
+        # SerializationTool.deserialize_model(client_model, rank_serialized_parameters, self.server_rank, self.server_rank)
+        SerializationTool.original_deserialize_model(client_model, rank_serialized_parameters)
+        if (server_round % self.mix_round_threshold == 0):
+            # reset model lora A, lora B
+            client_model.backbone.merge_lora_reuse()
+            # reset model lora A, lora B
+            client_model.backbone.reset_all_lora_parameters()
+            # reset lora layer grad
+            for name, parameter in client_model.named_parameters():
+                if "lora" in name:
+                    parameter.grad.zero_()
+        return self.model_parameters(client_model, client_rank, self.server_rank)
+
     def fed_train(self, model_parameters: torch.Tensor, id_list: List):
         param_list = []
         server_round = int(model_parameters[-1].item())
         model_parameters = model_parameters[:-1]
+
+        # average_same_rank_client_model parameter
+        rank2_param_list = []
+        rank4_param_list = []
+        rank8_param_list = []
+        rank16_param_list = []
         
         # different idx has different rank client model
         """
@@ -280,8 +303,6 @@ class BaseClientTrainer(ClientTrainer, ABC):
         self.client_model_rank8 = client_model_rank8
         """
         for idx in id_list:
-            #martinc test check log
-            
             client_rank = self.rank_mapping_dict[idx]
             if(client_rank == 2):
                 rank_model = self.client_model_rank2
@@ -304,14 +325,71 @@ class BaseClientTrainer(ClientTrainer, ABC):
             # param_list.append(self.model_parameters)
             # print("client_rank:", client_rank)
 
-            """
-            # martinc test check
-            for name, parameter in rank_model.named_parameters():
-                if (name == "backbone.base_model.model.roberta.encoder.layer.3.attention.self.query.weight"):# backbone.base_model.model.roberta.encoder.layer.3.attention.self.query.weight
-                    print("_train_alone after train rank_model idx:", idx , " parameter:", parameter)
-            """
-            param_list.append(self.model_parameters(rank_model, client_rank, self.server_rank))
+            if (self.average_same_rank_client_model):
+                if (client_rank == 2):
+                    # rank2_param_list.append(self.model_parameters(rank_model, client_rank, self.server_rank))
+                    rank2_param_list.append(SerializationTool.original_serialize_model(rank_model))
+                elif (client_rank == 4):
+                    # rank4_param_list.append(self.model_parameters(rank_model, client_rank, self.server_rank))
+                    rank4_param_list.append(SerializationTool.original_serialize_model(rank_model))
+                elif (client_rank == 8):
+                    # rank8_param_list.append(self.model_parameters(rank_model, client_rank, self.server_rank))
+                    rank8_param_list.append(SerializationTool.original_serialize_model(rank_model))
+                elif (client_rank == 16):
+                    # rank16_param_list.append(self.model_parameters(rank_model, client_rank, self.server_rank))
+                    rank16_param_list.append(SerializationTool.original_serialize_model(rank_model))
+            else:
+                if (server_round % self.mix_round_threshold == 0):
+                    # print("idx:", idx, " server_round:", server_round, " self.mix_round_threshold:", self.mix_round_threshold)
+                    # print("client idx:", idx, " self.mix_round_threshold:", self.mix_round_threshold, " server backbone.base_model.model.roberta.encoder.layer.3.attention.self.value.round_count.round_count")
+                    # print(int(self._model.state_dict()["backbone.base_model.model.roberta.encoder.layer.3.attention.self.value.round_count.round_count"].item()))
+                    # martinc
+                    # reset model lora A, lora B
+                    rank_model.backbone.merge_lora_reuse()
 
+                    # martinc
+                    # reset model lora A, lora B
+                    rank_model.backbone.reset_all_lora_parameters()
+                    # self._model.backbone.reset_zero_all_lora_parameters()
+                    # reset lora layer grad
+                    for name, parameter in rank_model.named_parameters():
+                        if "lora" in name:
+                            parameter.grad.zero_()
+
+                """
+                # martinc test check
+                for name, parameter in rank_model.named_parameters():
+                    if (name == "backbone.base_model.model.roberta.encoder.layer.3.attention.self.query.weight"):# backbone.base_model.model.roberta.encoder.layer.3.attention.self.query.weight
+                        print("after train rank_model idx:", idx , " parameter:", parameter)
+                """
+                param_list.append(self.model_parameters(rank_model, client_rank, self.server_rank))
+
+        if (self.average_same_rank_client_model):
+            if (len(rank2_param_list) > 0):
+                averaged_serialized_parameters = self.average_same_rank_model(rank2_param_list, self.client_model_rank2, 2, server_round) # rank_param_list: List, client_model, client_rank, server_round)
+                param_list.append(averaged_serialized_parameters)
+                # print("done rank2_param_list average_same_rank_model")
+            if (len(rank4_param_list) > 0):
+                averaged_serialized_parameters = self.average_same_rank_model(rank4_param_list, self.client_model_rank4, 4, server_round) # rank_param_list: List, client_model, client_rank, server_round)
+                param_list.append(averaged_serialized_parameters)
+                # print("done rank4_param_list average_same_rank_model")
+            if (len(rank8_param_list) > 0):
+                averaged_serialized_parameters = self.average_same_rank_model(rank8_param_list, self.client_model_rank8, 8, server_round) # rank_param_list: List, client_model, client_rank, server_round)
+                param_list.append(averaged_serialized_parameters)
+                # print("done rank8_param_list average_same_rank_model")
+            if (len(rank16_param_list) > 0):
+                averaged_serialized_parameters = self.average_same_rank_model(rank16_param_list, self.client_model_rank16, 16, server_round) # rank_param_list: List, client_model, client_rank, server_round)
+                param_list.append(averaged_serialized_parameters)
+                # print("done rank16_param_list average_same_rank_model")
+
+        """
+        print("fed_train before return param_list")
+        print("param_list")
+        print(param_list)
+        print("len(param_list):", len(param_list))
+        print("param_list[0].size():", param_list[0].size())
+        print("param_list[1].size():", param_list[1].size())
+        """
         return param_list
 
     def cen_train(self, *args):

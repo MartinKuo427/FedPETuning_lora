@@ -18,6 +18,8 @@ from fedlab.core.coordinator import Coordinator
 
 import traceback
 
+from torch.utils.tensorboard import SummaryWriter
+
 
 class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
     def __init__(self, model, valid_data, test_data):
@@ -88,6 +90,13 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
             self.training_config.checkpoint_dir, f"{times}_{self.model_config.model_type}.pth")
         self.best_glo_params = None
 
+        # martinc sender_rank_list: determine fed aggregation timing
+        self.sender_rank_list = []
+        self.world_size = self.federated_config.world_size
+
+        # martinc tensorboard writer
+        self.writer = SummaryWriter()
+
     def _build_eval(self):
         self.eval = registry.get_eval_class(self.training_config.metric_name)(
             self.device, self.metric
@@ -108,7 +117,7 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
         )
         return selection
 
-    def _update_global_model(self, payload):
+    def _update_global_model(self, payload, sender_rank):
         assert len(payload) > 0
 
         if len(payload) == 1:
@@ -118,7 +127,10 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
 
         assert len(self.client_buffer_cache) <= self.client_num_per_round
 
-        if len(self.client_buffer_cache) == self.client_num_per_round:
+        # martinc
+        self.sender_rank_list.append(sender_rank)
+        # if len(self.client_buffer_cache) == self.client_num_per_round:
+        if (len(self.sender_rank_list) == (self.world_size - 1)):
             model_parameters_list = self.client_buffer_cache
             self.logger.debug(
                 f"Model parameters aggregation, number of aggregation elements {len(model_parameters_list)}"
@@ -186,6 +198,9 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
             # reset cache cnt
             self.client_buffer_cache = []
 
+            # reset self.sender_rank_list
+            self.sender_rank_list = []
+
             return True  # return True to end this round.
         else:
             return False
@@ -246,6 +261,11 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
 
     def on_round_end(self, result):
         test_metric, test_loss = result[self.metric_name], result["eval_loss"]
+
+        self.writer.add_scalar('eval_loss/round', test_loss, self.round)
+        self.writer.add_scalar(self.metric_name + '/round', test_metric, self.round)
+        # self.writer.add_scalar('lr/train', current_lr, step)
+        self.writer.flush()
 
         # TODO hard code
         if self.global_valid_best_metric < test_metric:
@@ -308,7 +328,7 @@ class BaseServerManager(ServerManager):
                 sender_rank, message_code, payload = self._network.recv()
 
                 if message_code == MessageCode.ParameterUpdate:
-                    if self._handler._update_global_model(payload):
+                    if self._handler._update_global_model(payload, sender_rank):
                         break
                 else:
                     raise Exception(
