@@ -47,7 +47,9 @@ class FedAvgTrainer(BaseTrainer):
             client_model_rank16=self.client_model_rank16,
             train_dataset=self.data.train_dataloader_dict,
             valid_dataset=self.data.valid_dataloader_dict,
+            train_total_step=self.data.train_total_step
             # data_slices=self.federated_config.clients_id_list,
+            
         )
 
         self.client_manager = FedAvgClientManager(

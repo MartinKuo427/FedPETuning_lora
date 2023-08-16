@@ -73,6 +73,38 @@ class BaseDataLoader(ABC):
                 = pickle_read(self.cached_data_file)
             del valid_fedtures_all, test_fedtures_all
 
+            
+            # martinc
+            # calculate total step of training data
+            config = registry.get("config")
+            self.model_config = config.M
+            self.data_config = config.D
+            self.training_config = config.T
+            self.federated_config = config.F
+
+            """
+            train_dl_len = 0
+            for index in range(0, 100):
+                t_temp = len(self.build_dataloader(train_features_dict[index], "train"))
+                train_dl_len += t_temp
+                # print("index:", index, " t_temp:", t_temp)
+            # print("martinc _load_federated_data_on_client train_features_dict.keys():", train_features_dict.keys())
+            # print("train_dl_len:", train_dl_len, " self.training_config.gradient_accumulation_steps:", self.training_config.gradient_accumulation_steps, " self.training_config.num_train_epochs:", self.training_config.num_train_epochs)
+            t_one_set = \
+                train_dl_len / self.training_config.gradient_accumulation_steps * self.training_config.num_train_epochs
+            
+            train_total_step = int((config.F.rounds * (config.F.clients_num * config.F.sample) // config.F.clients_num) * t_one_set)
+            """
+            train_dl_len = 0
+            for index in range(0, config.F.clients_num):
+                t_temp = len(self.build_dataloader(train_features_dict[index], "train"))
+                train_dl_len += t_temp
+
+            train_total_step = int((train_dl_len / config.F.clients_num) * config.F.rounds)
+
+            # print("train_total_step:", train_total_step, " train_dl_len:", train_dl_len, " config.F.clients_num:", config.F.clients_num, " config.F.rounds:", config.F.rounds)
+            
+
             for idx in self.clients_list:
                 train_dataloader_dict[idx] = self.build_dataloader(train_features_dict[idx], "train")
                 valid_dataloader_dict[idx] = self.build_dataloader(valid_features_dict[idx], "valid")
@@ -86,6 +118,9 @@ class BaseDataLoader(ABC):
         self.train_examples_num_dict = train_examples_num_dict
         self.valid_examples_num_dict = valid_examples_num_dict
         self.train_num, self.valid_num, self.test_num = train_num, valid_num, test_num
+
+        # martinc
+        self.train_total_step = train_total_step
 
     def _load_centralized_data(self):
         train_dataloader_dict, valid_dataloader_dict = {}, {}

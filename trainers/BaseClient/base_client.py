@@ -7,6 +7,7 @@ from thop import clever_format
 
 import torch
 from transformers import get_linear_schedule_with_warmup, AdamW
+from torch.optim.lr_scheduler import LambdaLR
 
 from utils import registry
 from utils import get_parameter_number
@@ -16,9 +17,12 @@ from fedlab.core.client.manager import PassiveClientManager
 from fedlab.core.client.manager import ORDINARY_TRAINER, SERIAL_TRAINER
 from fedlab.core.server.handler import Aggregators
 
+# martinc
+import transformers
+
 class BaseClientTrainer(ClientTrainer, ABC):
     # def __init__(self, model, train_dataset, valid_dataset):
-    def __init__(self, client_model_rank2, client_model_rank4, client_model_rank8, client_model_rank16, train_dataset, valid_dataset):
+    def __init__(self, client_model_rank2, client_model_rank4, client_model_rank8, client_model_rank16, train_dataset, valid_dataset, train_total_step):
 
         # self._model = model
         self.client_model_rank2 = client_model_rank2
@@ -28,6 +32,23 @@ class BaseClientTrainer(ClientTrainer, ABC):
         self.train_dataset = train_dataset
         self.valid_dataset = valid_dataset
 
+        self.train_total_step = train_total_step
+        # self.last_training_step = -1
+        
+
+        """
+        # martinc testing print
+        check_id_list = list(range(0, 100))
+        print("check_id_list")
+        print(check_id_list)
+        for check_idx in check_id_list:
+            check_train_loader = self._get_dataloader(dataset=self.train_dataset, client_id=check_idx)
+            for step, batch in enumerate(check_train_loader):
+                check_inputs = {'input_ids': batch[0],
+                                'attention_mask': batch[1],
+                                'labels': batch[3]
+                                }
+        """
 
         delta_args = registry.get("delta_config")
         self.server_rank = delta_args["lora_r"]
@@ -111,6 +132,11 @@ class BaseClientTrainer(ClientTrainer, ABC):
         self.metric_name = self.metric.metric_name
         # self._model.to(self.device)
 
+
+        # martinc
+        self.train_warmup_steps = int(self.train_total_step  * self.training_config.warmup_ratio)
+
+
         self.client_model_rank2.to(self.device)
         self.client_model_rank4.to(self.device)
         self.client_model_rank8.to(self.device)
@@ -157,7 +183,7 @@ class BaseClientTrainer(ClientTrainer, ABC):
     def uplink_package(self):
         return self.param_list
 
-    def _train_alone(self, idx: int, model_parameters: torch.Tensor, server_round: int, client_model, client_rank: int, *args, **kwargs):
+    def _train_alone(self, idx: int, model_parameters: torch.Tensor, server_round: int, client_model, client_rank: int, last_training_step: int, *args, **kwargs):
         """local training for Client"""
 
         train_loader = self._get_dataloader(dataset=self.train_dataset, client_id=idx)
@@ -195,7 +221,8 @@ class BaseClientTrainer(ClientTrainer, ABC):
                 print("before train client_model idx:", idx , " parameter:", parameter)
         """
         # build optimizer,scheduler,loss
-        optimizer, scheduler = self._build_optimizer(client_model, len(train_loader))
+        # optimizer, scheduler = self._build_optimizer(client_model, len(train_loader))
+        optimizer, scheduler = self._build_optimizer(client_model, last_training_step)
         client_model, optimizer = self._mixed_train_model(client_model, optimizer)
         self._build_loss()
 
@@ -215,14 +242,23 @@ class BaseClientTrainer(ClientTrainer, ABC):
                 if (unfreeze_grad_name in name):
                     parameter.requires_grad = True
 
+        # martinc
+        print("before client idx:", idx, " scheduler.last_epoch", scheduler.last_epoch, " scheduler.get_lr()", scheduler.get_lr())
 
         for epoch in range(0, int(self.training_config.num_train_epochs)):
             self._on_epoch_begin()
-            self._on_epoch(client_model, train_loader, optimizer, scheduler)
+            self._on_epoch(client_model, train_loader, optimizer, scheduler, idx)
             self._on_epoch_end(client_model, idx, client_rank)
             if self.federated_config.pson and self.stop_early:
                 self.logger.critical(f"local stop early in {epoch}")
                 break
+
+        # martinc
+        print("after client idx:", idx, " scheduler.last_epoch", scheduler.last_epoch, " scheduler.get_lr()", scheduler.get_lr())
+
+        last_training_step = scheduler.last_epoch - 1
+        return last_training_step
+        # TODO return self.last_training_step back to server, and to average, then pass back to client
 
         """# original place
         if (server_round % self.mix_round_threshold == 0):
@@ -283,14 +319,43 @@ class BaseClientTrainer(ClientTrainer, ABC):
 
     def fed_train(self, model_parameters: torch.Tensor, id_list: List):
         param_list = []
-        server_round = int(model_parameters[-1].item())
-        model_parameters = model_parameters[:-1]
+        # server_round = int(model_parameters[-1].item())
+        # model_parameters = model_parameters[:-1]
+
+        # return [torch.cat((self.model_parameters(self._model, self.server_rank, self.server_rank), torch.tensor([self.round + 1]), torch.tensor([self.last_training_step])), dim=0)]
+        server_last_training_step = int(model_parameters[-1].item()) # average by server
+        server_round = int(model_parameters[-2].item())
+        model_parameters = model_parameters[:-2]
+        # print("client fed_train self.last_training_step:", self.last_training_step)
 
         # average_same_rank_client_model parameter
         rank2_param_list = []
         rank4_param_list = []
         rank8_param_list = []
         rank16_param_list = []
+
+        rank2_correct_list = []
+        rank2_total_list = []
+        rank2_loss_list = []
+        # self.last_training_step
+        rank2_last_training_step_list = []
+
+        rank4_correct_list = []
+        rank4_total_list = []
+        rank4_loss_list = []
+        rank4_last_training_step_list = []
+
+        rank8_correct_list = []
+        rank8_total_list = []
+        rank8_loss_list = []
+        rank8_last_training_step_list = []
+
+        rank16_correct_list = []
+        rank16_total_list = []
+        rank16_loss_list = []
+        rank16_last_training_step_list = []
+
+        # self.tr_loss/self.global_step
         
         # different idx has different rank client model
         """
@@ -303,6 +368,10 @@ class BaseClientTrainer(ClientTrainer, ABC):
         self.client_model_rank8 = client_model_rank8
         """
         for idx in id_list:
+            # return [torch.cat((self.model_parameters(self._model, self.server_rank, self.server_rank), torch.tensor([self.round + 1]), torch.tensor([self.last_training_step])), dim=0)]
+            last_training_step = server_last_training_step # average by server
+            print("client idx:", idx, " client fed_train last_training_step:", last_training_step)
+
             client_rank = self.rank_mapping_dict[idx]
             if(client_rank == 2):
                 rank_model = self.client_model_rank2
@@ -314,12 +383,13 @@ class BaseClientTrainer(ClientTrainer, ABC):
                 rank_model = self.client_model_rank16
 
 
-            self._train_alone(
+            last_training_step = self._train_alone(
                 idx=idx,
                 model_parameters=model_parameters,
                 server_round=server_round,
                 client_model=rank_model,
-                client_rank=client_rank
+                client_rank=client_rank,
+                last_training_step=last_training_step
             )
             # original open
             # param_list.append(self.model_parameters)
@@ -329,15 +399,39 @@ class BaseClientTrainer(ClientTrainer, ABC):
                 if (client_rank == 2):
                     # rank2_param_list.append(self.model_parameters(rank_model, client_rank, self.server_rank))
                     rank2_param_list.append(SerializationTool.original_serialize_model(rank_model))
+                    rank2_last_training_step_list.append(last_training_step)
+                    """
+                    rank2_correct_list.append(self.correct)
+                    rank2_total_list.append(self.total)
+                    rank2_loss_list.append(self.tr_loss/self.global_step)
+                    """
                 elif (client_rank == 4):
                     # rank4_param_list.append(self.model_parameters(rank_model, client_rank, self.server_rank))
                     rank4_param_list.append(SerializationTool.original_serialize_model(rank_model))
+                    rank4_last_training_step_list.append(last_training_step)
+                    """
+                    rank4_correct_list.append(self.correct)
+                    rank4_total_list.append(self.total)
+                    rank4_loss_list.append(self.tr_loss/self.global_step)
+                    """
                 elif (client_rank == 8):
                     # rank8_param_list.append(self.model_parameters(rank_model, client_rank, self.server_rank))
                     rank8_param_list.append(SerializationTool.original_serialize_model(rank_model))
+                    rank8_last_training_step_list.append(last_training_step)
+                    """
+                    rank8_correct_list.append(self.correct)
+                    rank8_total_list.append(self.total)
+                    rank8_loss_list.append(self.tr_loss/self.global_step)
+                    """
                 elif (client_rank == 16):
                     # rank16_param_list.append(self.model_parameters(rank_model, client_rank, self.server_rank))
                     rank16_param_list.append(SerializationTool.original_serialize_model(rank_model))
+                    rank16_last_training_step_list.append(last_training_step)
+                    """
+                    rank16_correct_list.append(self.correct)
+                    rank16_total_list.append(self.total)
+                    rank16_loss_list.append(self.tr_loss/self.global_step)
+                    """
             else:
                 if (server_round % self.mix_round_threshold == 0):
                     # print("idx:", idx, " server_round:", server_round, " self.mix_round_threshold:", self.mix_round_threshold)
@@ -362,24 +456,34 @@ class BaseClientTrainer(ClientTrainer, ABC):
                     if (name == "backbone.base_model.model.roberta.encoder.layer.3.attention.self.query.weight"):# backbone.base_model.model.roberta.encoder.layer.3.attention.self.query.weight
                         print("after train rank_model idx:", idx , " parameter:", parameter)
                 """
-                param_list.append(self.model_parameters(rank_model, client_rank, self.server_rank))
+                # original
+                # param_list.append(self.model_parameters(rank_model, client_rank, self.server_rank))
+                # self.last_training_step
+                param_list.append(torch.cat((self.model_parameters(rank_model, client_rank, self.server_rank), torch.tensor([last_training_step])),  dim=0))
+                # param_list.append(torch.cat((self.model_parameters(rank_model, client_rank, self.server_rank), torch.tensor([self.correct]), torch.tensor([self.total]), torch.tensor([(self.tr_loss/self.global_step)])), dim=0))
+                # param_list.append(torch.cat(self.model_parameters(rank_model, client_rank, self.server_rank), torch.tensor([self.correct]), torch.tensor([self.total]), torch.tensor([(self.tr_loss/self.global_step)])), dim=0)
 
         if (self.average_same_rank_client_model):
             if (len(rank2_param_list) > 0):
                 averaged_serialized_parameters = self.average_same_rank_model(rank2_param_list, self.client_model_rank2, 2, server_round) # rank_param_list: List, client_model, client_rank, server_round)
-                param_list.append(averaged_serialized_parameters)
-                # print("done rank2_param_list average_same_rank_model")
+                param_list.append(torch.cat((averaged_serialized_parameters, torch.tensor([sum(rank2_last_training_step_list)/len(rank2_last_training_step_list)])), dim=0))
+                # param_list.append(torch.cat((averaged_serialized_parameters, torch.tensor([sum(rank2_correct_list)]), torch.tensor([sum(rank2_total_list)]), torch.tensor([sum(rank2_loss_list)/len(rank2_loss_list)])), dim=0))
+                # param_list.append(averaged_serialized_parameters)
             if (len(rank4_param_list) > 0):
                 averaged_serialized_parameters = self.average_same_rank_model(rank4_param_list, self.client_model_rank4, 4, server_round) # rank_param_list: List, client_model, client_rank, server_round)
-                param_list.append(averaged_serialized_parameters)
-                # print("done rank4_param_list average_same_rank_model")
+                param_list.append(torch.cat((averaged_serialized_parameters, torch.tensor([sum(rank4_last_training_step_list)/len(rank4_last_training_step_list)])), dim=0))
+                # param_list.append(torch.cat((averaged_serialized_parameters, torch.tensor([sum(rank4_correct_list)]), torch.tensor([sum(rank4_total_list)]), torch.tensor([sum(rank4_loss_list)/len(rank4_loss_list)])), dim=0))
+                # param_list.append(averaged_serialized_parameters)
             if (len(rank8_param_list) > 0):
                 averaged_serialized_parameters = self.average_same_rank_model(rank8_param_list, self.client_model_rank8, 8, server_round) # rank_param_list: List, client_model, client_rank, server_round)
-                param_list.append(averaged_serialized_parameters)
-                # print("done rank8_param_list average_same_rank_model")
+                param_list.append(torch.cat((averaged_serialized_parameters, torch.tensor([sum(rank8_last_training_step_list)/len(rank8_last_training_step_list)])), dim=0))
+                # param_list.append(torch.cat((averaged_serialized_parameters, torch.tensor([sum(rank8_correct_list)]), torch.tensor([sum(rank8_total_list)]), torch.tensor([sum(rank8_loss_list)/len(rank8_loss_list)])), dim=0))
+                # param_list.append(averaged_serialized_parameters)
             if (len(rank16_param_list) > 0):
                 averaged_serialized_parameters = self.average_same_rank_model(rank16_param_list, self.client_model_rank16, 16, server_round) # rank_param_list: List, client_model, client_rank, server_round)
-                param_list.append(averaged_serialized_parameters)
+                param_list.append(torch.cat((averaged_serialized_parameters, torch.tensor([sum(rank16_last_training_step_list)/len(rank16_last_training_step_list)])), dim=0))
+                # param_list.append(torch.cat((averaged_serialized_parameters, torch.tensor([sum(rank16_correct_list)]), torch.tensor([sum(rank16_total_list)]), torch.tensor([sum(rank16_loss_list)/len(rank16_loss_list)])), dim=0))
+                # param_list.append(averaged_serialized_parameters)
                 # print("done rank16_param_list average_same_rank_model")
 
         """
@@ -404,7 +508,48 @@ class BaseClientTrainer(ClientTrainer, ABC):
             config=self.training_config
         )
 
-    def _build_optimizer(self, model, train_dl_len):
+    def get_linear_start_end_ratio_schedule(self, optimizer, num_training_steps, start_lr, end_lr, last_epoch=-1):# (self, optimizer, num_warmup_steps, num_training_steps, last_epoch=-1):
+        """
+        Create a schedule with a learning rate that decreases linearly from the initial lr set in the optimizer to 0,
+        after a warmup period during which it increases linearly from 0 to the initial lr set in the optimizer.
+
+        Args:
+            optimizer (:class:`~torch.optim.Optimizer`):
+                The optimizer for which to schedule the learning rate.
+            num_warmup_steps (:obj:`int`):
+                The number of steps for the warmup phase.
+            num_training_steps (:obj:`int`):
+                The totale number of training steps.
+            last_epoch (:obj:`int`, `optional`, defaults to -1):
+                The index of the last epoch when resuming training.
+
+        Return:
+            :obj:`torch.optim.lr_scheduler.LambdaLR` with the appropriate schedule.
+        """
+
+        def lr_lambda(current_step: int):
+            # if current_step < num_warmup_steps:
+            #     return float(current_step) / float(max(1, num_warmup_steps))
+            # print("start_lr:", start_lr, " end_lr:", end_lr, " num_training_steps:", num_training_steps, " current_step:", current_step)
+            # new_lr = start_lr - (((start_lr - end_lr) / float(num_training_steps)) *  float(current_step))
+            # print("new_lr:", new_lr, " start_lr:", start_lr, " end_lr:", end_lr, " num_training_steps:", num_training_steps, " current_step:", current_step)
+            
+            mul_factor = 1 - (((start_lr - end_lr) * current_step) / (num_training_steps * start_lr))
+
+            # return mul_factor
+            return max(
+                0.0, mul_factor
+            )
+            
+            """
+            return max(
+                0.0, float(num_training_steps - current_step) / float(max(1, num_training_steps - num_warmup_steps))
+            )
+            """
+        return LambdaLR(optimizer, lr_lambda, last_epoch)
+
+    def _build_optimizer(self, model, last_training_step):
+        """
         if self.training_config.max_steps > 0:
             t_total = self.training_config.max_steps
             self.training_config.num_train_epochs = \
@@ -412,23 +557,57 @@ class BaseClientTrainer(ClientTrainer, ABC):
         else:
             t_total = \
                 train_dl_len // self.training_config.gradient_accumulation_steps * self.training_config.num_train_epochs
+        """
+
+        
 
         # Prepare optimizer and schedule (linear warmup and decay)
         optimizer_grouped_parameters = self.get_optimized_model_params(model)
 
         optimizer = AdamW(
+            # [{'params': optimizer_grouped_parameters, 'initial_lr': self.training_config.learning_rate}],
+            optimizer_grouped_parameters,
+            lr=self.training_config.learning_rate,
+            eps=self.training_config.adam_epsilon
+        )
+
+        #original
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer, num_warmup_steps=self.train_warmup_steps,
+            num_training_steps=self.train_total_step, last_epoch=last_training_step
+        )
+        
+        """
+        # original
+        optimizer = AdamW(
             optimizer_grouped_parameters, lr=self.training_config.learning_rate,
             eps=self.training_config.adam_epsilon
         )
+
+        #original
         scheduler = get_linear_schedule_with_warmup(
             optimizer, num_warmup_steps=self.training_config.warmup_steps,
             num_training_steps=t_total
         )
+        """
 
+        """
+        optimizer = AdamW(
+            optimizer_grouped_parameters, lr=start_learning_rate,
+            eps=self.training_config.adam_epsilon
+        )
+
+
+        # def get_linear_start_end_ratio_schedule(self, optimizer, num_training_steps, start_lr, end_lr, last_epoch=-1):
+        scheduler = self.get_linear_start_end_ratio_schedule(
+            optimizer, num_training_steps=t_total, start_lr=start_learning_rate, end_lr=end_learning_rate
+        )
+        """
         return optimizer, scheduler
 
     def get_optimized_model_params(self, model):
         # Prepare optimizer and schedule (linear warmup and decay)
+        """
         no_decay = ['bias', 'LayerNorm.weight']
         optimizer_grouped_parameters = [
             {'params': [p for n, p in model.backbone.named_parameters() if
@@ -436,7 +615,14 @@ class BaseClientTrainer(ClientTrainer, ABC):
             {'params': [p for n, p in model.backbone.named_parameters() if
                         any(nd in n for nd in no_decay)], 'weight_decay': 0.0},
         ]
-
+        """
+        no_decay = ['bias', 'LayerNorm.weight']
+        optimizer_grouped_parameters = [
+            {'params': [p for n, p in model.backbone.named_parameters() if
+                        not any(nd in n for nd in no_decay)], 'weight_decay': self.training_config.weight_decay, 'initial_lr': self.training_config.learning_rate},
+            {'params': [p for n, p in model.backbone.named_parameters() if
+                        any(nd in n for nd in no_decay)], 'weight_decay': 0.0, 'initial_lr': self.training_config.learning_rate},
+        ]
         # Both pieces of code have the same effect
         # optimizer_grouped_parameters = [
         #     {"params": filter(lambda x: x.requires_grad, model.bert.parameters()),
@@ -496,8 +682,11 @@ class BaseClientTrainer(ClientTrainer, ABC):
         self.tr_loss, self.logging_loss = 0.0, 0.0
         self.total, self.correct = 0, 0
 
-    def _on_epoch(self, client_model, train_loader, optimizer, scheduler):
+    def _on_epoch(self, client_model, train_loader, optimizer, scheduler, idx):
         for step, batch in enumerate(train_loader):
+            # print("idx:", idx, " step:", step, " client scheduler.get_last_lr():", scheduler.get_last_lr())
+            # print("idx:", idx, " step:", step, " client optimizer.param_groups[0]['lr']:", optimizer.param_groups[0]['lr'])
+            
             # if step >= 2:
             #     break
             client_model.train()

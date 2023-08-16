@@ -18,12 +18,12 @@ task_name = sys.argv[3]
 tuning_type = sys.argv[4]
 port_start = int(sys.argv[5])
 device = sys.argv[6]
-mix_round_threshold = sys.argv[7]
-alternate_lora_training = sys.argv[8]
-reset_client_lora_begin = sys.argv[9]
-average_same_rank_client_model = sys.argv[10]
-# num_train_epochs = sys.argv[9]
-# rounds = sys.argv[9]
+# rounds = sys.argv[7]
+random_seed = sys.argv[7]
+mix_round_threshold = sys.argv[8]
+alternate_lora_training = sys.argv[9]
+reset_client_lora_begin = sys.argv[10]
+average_same_rank_client_model = sys.argv[11]
 
 
 device_idx_list = [idx for idx in device.split(",")]
@@ -51,7 +51,8 @@ gpu_index = 0
 # for tuning_type in ['lora', 'prefix', 'adapter', 'bitfit', 'fine-tuning']:
 for tuning_type in ['lora']:
     hyper_parameter = fed_best_hyperparameter[task_name][tuning_type]
-    hyper_parameter["seed"] = [42]
+    # hyper_parameter["seed"] = [42]
+    hyper_parameter["seed"] = [random_seed]
     hyper_parameter["num_train_epochs"] = [1]
     # hyper_parameter["num_train_epochs"] = num_train_epochs
     # hyper_parameter["rounds"] = rounds

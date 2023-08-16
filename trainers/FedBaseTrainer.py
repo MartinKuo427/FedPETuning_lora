@@ -136,10 +136,6 @@ class BaseTrainer(ABC):
             # martinc
             self._build_server_model()
 
-            #print("self.server_model_rank8")
-            #print(self.server_model_rank8)
-            #print("martinc fff quit------------------")
-            #quit()
             self.logger.info("building server ...")
             self._build_server()
         else:

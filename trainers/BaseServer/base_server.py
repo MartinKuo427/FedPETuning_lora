@@ -20,6 +20,7 @@ import traceback
 
 from torch.utils.tensorboard import SummaryWriter
 
+import numpy as np
 
 class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
     def __init__(self, model, valid_data, test_data):
@@ -53,6 +54,8 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
         # stop condition
         self.global_round = config.federated_config.rounds
         self.round = 0
+
+        print("martinc self.global_round:", self.global_round)
 
         #  metrics & eval
         self._build_metric()
@@ -94,9 +97,27 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
         self.sender_rank_list = []
         self.world_size = self.federated_config.world_size
 
+        # martinc global learning rate scheduler
+        # self.global_start_learning_rate = self.training_config.learning_rate
+        # self.global_learning_rate_array = np.linspace(self.training_config.learning_rate, 0.0, num=(self.global_round + 1))
+
+        # martinc last epoch
+        self.last_training_step = -1
+
         # martinc tensorboard writer
         self.writer = SummaryWriter()
 
+        self.train_correct_list = []
+        self.train_total_list = []
+        self.train_loss_list = []
+
+        """
+        # param_list.append(torch.cat(self.model_parameters(rank_model, client_rank, self.server_rank), self.correct, self.total, (self.tr_loss/self.global_step)), dim=0)
+
+        for index in range(len(model_parameters_list)):
+            train_loss = model_parameters_list[index][-1]
+            model_parameters_list[index] = model_parameters_list[index][:-3]
+        """
     def _build_eval(self):
         self.eval = registry.get_eval_class(self.training_config.metric_name)(
             self.device, self.metric
@@ -132,6 +153,34 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
         # if len(self.client_buffer_cache) == self.client_num_per_round:
         if (len(self.sender_rank_list) == (self.world_size - 1)):
             model_parameters_list = self.client_buffer_cache
+
+            # martinc decompose message
+            # param_list.append(torch.cat(self.model_parameters(rank_model, client_rank, self.server_rank), self.correct, self.total, (self.tr_loss/self.global_step)), dim=0)
+            # self.train_correct_list = []
+            # self.train_total_list = []
+            # self.train_loss_list = []
+            """
+            for index in range(len(model_parameters_list)):
+                train_loss = model_parameters_list[index][-1]
+                train_total = model_parameters_list[index][-2]
+                train_correct = model_parameters_list[index][-3]
+                self.train_loss_list.append(train_loss.detach())
+                self.train_total_list.append(train_total.item())
+                self.train_correct_list.append(train_correct.item())
+                model_parameters_list[index] = model_parameters_list[index][:-3]
+            """
+
+            last_training_step_list = []
+            for index in range(len(model_parameters_list)):
+                temp_last_training_step = model_parameters_list[index][-1]
+                last_training_step_list.append(temp_last_training_step)
+                model_parameters_list[index] = model_parameters_list[index][:-1]
+            
+            self.last_training_step = int(sum(last_training_step_list) / len(last_training_step_list))
+
+            # martinc
+            print("server average self.last_training_step:", self.last_training_step)
+
             self.logger.debug(
                 f"Model parameters aggregation, number of aggregation elements {len(model_parameters_list)}"
             )
@@ -214,8 +263,10 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
         """Property for manager layer. BaseServer manager will call this property when activates clients."""
         # original
         # return [self.model_parameters]
-
-        return [torch.cat((self.model_parameters(self._model, self.server_rank, self.server_rank), torch.tensor([self.round + 1])), dim=0)]
+        # self.last_training_step = 100
+        print("martinc server downlink_package self.last_training_step:", self.last_training_step)
+        return [torch.cat((self.model_parameters(self._model, self.server_rank, self.server_rank), torch.tensor([self.round + 1]), torch.tensor([self.last_training_step])), dim=0)]
+        # return [torch.cat((self.model_parameters(self._model, self.server_rank, self.server_rank), torch.tensor([self.round + 1]), torch.tensor([self.global_learning_rate_array[min(len(self.global_learning_rate_array)-1, self.round)]]), torch.tensor([self.global_learning_rate_array[min(len(self.global_learning_rate_array)-1, self.round+1)]])), dim=0)]
         # return [torch.cat((cat_t, torch.tensor([self.round + 1])), dim=0)]
     # self.model_parameters(rank_model, client_rank)
 
@@ -262,8 +313,15 @@ class BaseSyncServerHandler(ParameterServerBackendHandler, ABC):
     def on_round_end(self, result):
         test_metric, test_loss = result[self.metric_name], result["eval_loss"]
 
+        """
+        train_mean_loss_vals = torch.stack(self.train_loss_list).mean().item()
+        train_movavg = sum(self.train_correct_list) / sum(self.train_total_list)        
+
+        self.writer.add_scalar('train_loss/round', train_mean_loss_vals, self.round)
+        self.writer.add_scalar('train_metric:' + self.metric_name + '/round', train_movavg, self.round)
+        """
         self.writer.add_scalar('eval_loss/round', test_loss, self.round)
-        self.writer.add_scalar(self.metric_name + '/round', test_metric, self.round)
+        self.writer.add_scalar('eval_metric/round', test_metric, self.round)
         # self.writer.add_scalar('lr/train', current_lr, step)
         self.writer.flush()
 
